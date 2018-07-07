@@ -7,6 +7,9 @@ from sc2.player import Bot, Computer
 from sc2.player import Human
 
 class ProbatusEstBot(sc2.BotAI):
+    
+    enemy_position = 0
+
     def select_target(self):
         target = self.known_enemy_structures
         if target.exists:
@@ -30,6 +33,13 @@ class ProbatusEstBot(sc2.BotAI):
             return
         else:
             cc = cc.first
+            
+#fechar a base (construir bunker)
+        if self.can_afford(BUNKER) and self.units(BUNKER).amount < 3:
+            if self.enemy_position == 0:
+                await self.build(BUNKER, near=cc.position.towards(self.game_info.map_center, 50))
+            else:
+                await self.build(BUNKER, near=cc.position.towards(self.enemy_position, 50))
 
 #attack
         if iteration % 50 == 0 and (self.units(HELLIONTANK).amount > 2 and self.units(MARINE).amount > 10):
