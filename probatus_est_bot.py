@@ -32,7 +32,7 @@ class ProbatusEstBot(sc2.BotAI):
             cc = cc.first
 
 #attack
-        if iteration % 50 == 0 and (self.units(HELLIONTANK).amount > 2 or self.units(MARINE) ):
+        if iteration % 50 == 0 and (self.units(HELLIONTANK).amount > 2 and self.units(MARINE).amount > 10):
             target = self.select_target()
             forces = self.units(HELLIONTANK)
             if (iteration//50) % 10 == 0:
@@ -42,6 +42,13 @@ class ProbatusEstBot(sc2.BotAI):
                 for unit in forces.idle:
                     await self.do(unit.attack(target))
             forces = self.units(MARINE)
+            if (iteration//50) % 10 == 0:
+                for unit in forces:
+                    await self.do(unit.attack(target))
+            else:
+                for unit in forces.idle:
+                    await self.do(unit.attack(target))
+            forces = self.units(MEDIVAC)
             if (iteration//50) % 10 == 0:
                 for unit in forces:
                     await self.do(unit.attack(target))
@@ -80,7 +87,7 @@ class ProbatusEstBot(sc2.BotAI):
                     if self.can_afford(FACTORY):
                         p = cc.position.towards_with_random_angle(self.game_info.map_center, 16)
                         await self.build(FACTORY, near=p)
-                if self.units(FACTORY).exists:
+                if self.units(FACTORY).ready.exists:
                     if self.can_afford(ARMORY) and not self.units(ARMORY).exists:
                         p = cc.position.towards_with_random_angle(self.game_info.map_center, 16)
                         await self.build(ARMORY, near=p)
@@ -95,10 +102,14 @@ class ProbatusEstBot(sc2.BotAI):
                 await self.do(barrack.train(MARINE))
 
         for factory in self.units(FACTORY).ready.noqueue:
-            # Reactor allows us to build two at a time
             if self.units(ARMORY).exists:
                 if self.can_afford(HELLIONTANK):
                     await self.do(factory.train(HELLIONTANK))
+
+        for starport in self.units(STARPORT).ready.noqueue:
+            # Reactor allows us to build two at a time
+            if self.can_afford(MEDIVAC) and self.units(MEDIVAC).amount < 6:
+                await self.do(starport.train(MEDIVAC))
 
         for a in self.units(REFINERY):
             if a.assigned_harvesters < a.ideal_harvesters:
@@ -113,7 +124,7 @@ def main():
     sc2.run_game(sc2.maps.get("Sequencer LE"), [
         # Human(Race.Terran),
         Bot(Race.Terran, ProbatusEstBot()),
-        Computer(Race.Zerg, Difficulty.Easy)
+        Computer(Race.Zerg, Difficulty.Hard)
     ], realtime=False)
 
 if __name__ == '__main__':
