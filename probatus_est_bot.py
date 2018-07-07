@@ -31,8 +31,8 @@ class ProbatusEstBot(sc2.BotAI):
         else:
             cc = cc.first
 
-
-        if iteration % 50 == 0 and self.units(HELLIONTANK).amount > 2:
+#attack
+        if iteration % 50 == 0 and (self.units(HELLIONTANK).amount > 2 or self.units(MARINE) ):
             target = self.select_target()
             forces = self.units(HELLIONTANK)
             if (iteration//50) % 10 == 0:
@@ -41,7 +41,14 @@ class ProbatusEstBot(sc2.BotAI):
             else:
                 for unit in forces.idle:
                     await self.do(unit.attack(target))
-
+            forces = self.units(MARINE)
+            if (iteration//50) % 10 == 0:
+                for unit in forces:
+                    await self.do(unit.attack(target))
+            else:
+                for unit in forces.idle:
+                    await self.do(unit.attack(target))
+#build
         if self.can_afford(SCV) and self.workers.amount < 25 and cc.noqueue:
             await self.do(cc.train(SCV))
 
@@ -81,6 +88,11 @@ class ProbatusEstBot(sc2.BotAI):
                         if self.can_afford(STARPORT) and not self.units(STARPORT).exists:
                             p = cc.position.towards_with_random_angle(self.game_info.map_center, 16)
                             await self.build(STARPORT, near=p)
+
+        for barrack in self.units(BARRACKS).ready.noqueue:
+            # Reactor allows us to build two at a time
+            if self.can_afford(MARINE):
+                await self.do(barrack.train(MARINE))
 
         for factory in self.units(FACTORY).ready.noqueue:
             # Reactor allows us to build two at a time
