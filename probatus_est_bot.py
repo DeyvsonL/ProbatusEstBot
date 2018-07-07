@@ -6,7 +6,7 @@ from sc2.constants import *
 from sc2.player import Bot, Computer
 from sc2.player import Human
 
-class ProxyRaxBot(sc2.BotAI):
+class ProbatusEstBot(sc2.BotAI):
     def select_target(self):
         target = self.known_enemy_structures
         if target.exists:
@@ -74,16 +74,19 @@ class ProxyRaxBot(sc2.BotAI):
                         p = cc.position.towards_with_random_angle(self.game_info.map_center, 16)
                         await self.build(FACTORY, near=p)
                 if self.units(FACTORY).exists:
-                    if self.can_afford(ARMORY):
+                    if self.can_afford(ARMORY) and not self.units(ARMORY).exists:
                         p = cc.position.towards_with_random_angle(self.game_info.map_center, 16)
                         await self.build(ARMORY, near=p)
+                    if self.units(ARMORY).ready.exists:
+                        if self.can_afford(STARPORT) and not self.units(STARPORT).exists:
+                            p = cc.position.towards_with_random_angle(self.game_info.map_center, 16)
+                            await self.build(STARPORT, near=p)
 
         for factory in self.units(FACTORY).ready.noqueue:
             # Reactor allows us to build two at a time
             if self.units(ARMORY).exists:
                 if self.can_afford(HELLIONTANK):
                     await self.do(factory.train(HELLIONTANK))
-
 
         for a in self.units(REFINERY):
             if a.assigned_harvesters < a.ideal_harvesters:
@@ -97,7 +100,7 @@ class ProxyRaxBot(sc2.BotAI):
 def main():
     sc2.run_game(sc2.maps.get("Sequencer LE"), [
         # Human(Race.Terran),
-        Bot(Race.Terran, ProxyRaxBot()),
+        Bot(Race.Terran, ProbatusEstBot()),
         Computer(Race.Zerg, Difficulty.Easy)
     ], realtime=False)
 
