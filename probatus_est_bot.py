@@ -5,6 +5,7 @@ from sc2 import Race, Difficulty
 from sc2.constants import *
 from sc2.player import Bot, Computer
 from sc2.player import Human
+from sc2.position import Point2
 
 class ProbatusEstBot(sc2.BotAI):
     
@@ -26,6 +27,16 @@ class ProbatusEstBot(sc2.BotAI):
         for unit in self.workers | self.units(HELLIONTANK):
             await self.do(unit.attack(target))
 
+    #Fugir para a base
+    def fugir_para_base(self, unit):
+        cc = self.units(COMMANDCENTER)
+        self.do(unit.move(cc.position.towards(self.units(COMMANDCENTER), 8)))
+    
+    #Atacar inimigo na base
+    async def inimigo_na_base(self, target):
+        for unit in self.workers | self.units(HELLIONTANK):
+            await self.do(unit.attack(target))
+    
     def select_target(self):
         target = self.known_enemy_structures
         if target.exists:
@@ -39,9 +50,17 @@ class ProbatusEstBot(sc2.BotAI):
             return self.enemy_start_locations[0].position
 
         return self.state.mineral_field.random.position
+    
+    
 
     async def on_step(self, iteration):
         cc = self.units(COMMANDCENTER)
+        
+        depos = [
+            Point2((max({p.x for p in d}), min({p.y for p in d})))
+            for d in self.main_base_ramp.top_wall_depos
+        ]
+
         if not cc.exists:
             target = self.known_enemy_structures.random_or(self.enemy_start_locations[0]).position
             for unit in self.workers | self.units(HELLIONTANK):
@@ -51,11 +70,20 @@ class ProbatusEstBot(sc2.BotAI):
             cc = cc.first
             
 #fechar a base (construir bunker)
-        if self.can_afford(BUNKER) and self.units(BUNKER).amount < 3:
-            if self.enemy_position == 0:
-                await self.build(BUNKER, near=cc.position.towards(self.game_info.map_center, 50))
-            else:
-                await self.build(BUNKER, near=cc.position.towards(self.enemy_position, 50))
+        
+        depo_count = (self.units(BUNKER)).amount
+        if self.can_afford(BUNKER) and not self.already_pending(BUNKER):
+            if depo_count >= len(depos):
+                return
+            depo = list(depos)[depo_count]
+            r = await self.build(BUNKER, near=depo, max_distance=2, placement_step=1)
+
+        
+        # if self.can_afford(BUNKER) and self.units(BUNKER).amount < 3:
+        #     if self.enemy_position == 0:
+        #         await self.build(BUNKER, near=cc.position.towards(self.game_info.map_center, 50))
+        #     else:
+        #         await self.build(BUNKER, near=cc.position.towards(self.enemy_position, 50))
 
 #attack
         if iteration % 50 == 0 and (self.units(HELLIONTANK).amount > 2 and self.units(MARINE).amount > 10):
