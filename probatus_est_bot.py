@@ -1,29 +1,176 @@
 import random
-
+import asyncio
 import sc2
 from sc2 import Race, Difficulty
 from sc2.constants import *
 from sc2.player import Bot, Computer
 from sc2.player import Human
+import time
 from sc2.position import Point2
 
-class ProbatusEstBot(sc2.BotAI):
-    
-    enemy_position = 0
-    qtd_marines = 50
-    qtd_hellion = 15
-    qtd_medivac = 7 
-    qtd_cyclone = 27
+scout_tags = []
+enemy_position = 0
+qtd_marines = 50
+qtd_hellion = 15
+qtd_medivac = 7 
+qtd_cyclone = 27
 
-    #Fugir para a base
-    def fugir_para_base(self, unit):
-        cc = self.units(COMMANDCENTER)
-        self.do(unit.move(cc.position.towards(self.units(COMMANDCENTER), 8)))
-    
-    #Atacar inimigo na base
-    async def inimigo_na_base(self, target):
-        for unit in self.workers | self.units(HELLIONTANK):
-            await self.do(unit.attack(target))
+class Agent:
+    async def on_step(self, bot, iteration):
+        raise NotImplementedError
+
+class Scouter(Agent):
+    def isScout(self, bot, scv):
+        if(bot.units(SCV).find_by_tag(scv.tag)==None):
+            return False
+        else:
+            return True
+
+    def add_scout(self, bot):
+        global scout_tags
+        w = bot.units(SCV)
+        if w.exists:
+            w_aux = w.random
+            scout_tags.append(w_aux.tag)
+            return w_aux
+        return None
+        
+
+    def update_scout_tags(self, bot):
+        global scout_tags
+        scout_tags_aux = []
+        for tag in scout_tags:
+            if(bot.units(SCV).find_by_tag(tag)!=None):
+                scout_tags_aux.append(tag)
+        scout_tags = scout_tags_aux
+
+    def check_len_scout(self, bot):
+        if(len(scout_tags)<6):
+            w = self.add_scout(bot)
+            if(w!=None):
+                scout_tags.append(w.tag)
+        
+    """def get_position_send_scout(self, bot):
+        count = 0
+        for tag in scout_tags:
+            position = bot.enemy_start_locations[count%len(bot.enemy_start_locations)]
+            worker = bot.units(SCV).find_by_tag(tag)
+            if(worker!=None):
+                loop = asyncio.get_event_loop()
+                await bot.do(worker.stop())
+            count=count+1"""
+           
+
+    async def on_step(self, bot, iteration):
+        if(iteration==0 or iteration%200==0):
+            global scout_tags
+            loop = asyncio.get_event_loop()
+            units = bot.units(SCV)
+            await loop.run_in_executor(None, self.update_scout_tags, bot)
+            await loop.run_in_executor(None, self.check_len_scout, bot)
+            target = bot.known_enemy_structures
+            #await loop.run_in_executor(None, self.send_scout, bot)
+            enemy_start_locations = bot.enemy_start_locations
+            units = bot.units(SCV)
+            position = enemy_start_locations[0]
+            for tag in scout_tags:
+                worker = units.find_by_tag(tag)
+                if(worker!=None):
+                    await bot.do(worker.move(position))
+            #self.send_scout(bot)
+
+class Command(Agent):        
+
+    async def on_step(self, bot, iteration):
+        cc = bot.units(COMMANDCENTER)
+        if not cc.exists:
+            target = bot.known_enemy_structures.random_or(bot.enemy_start_locations[0]).position
+            for unit in bot.workers | bot.units(HELLIONTANK):
+                await bot.do(unit.attack(target))
+            return
+        else:
+            cc = cc.random
+
+        if(iteration==0 or iteration%20==0):
+            if bot.can_afford(SCV) and bot.workers.amount < 25 and cc.noqueue:
+                await bot.do(cc.train(SCV))
+            elif bot.supply_left < 3:
+                if bot.can_afford(SUPPLYDEPOT) and bot.already_pending(SUPPLYDEPOT) < 2:
+                    await bot.build(SUPPLYDEPOT, near=cc.position.towards(bot.game_info.map_center, 8))
+
+            if bot.units(SUPPLYDEPOT).exists:
+                if not bot.units(BARRACKS).exists:
+                    if bot.can_afford(BARRACKS):
+                        await bot.build(BARRACKS, near=cc.position.towards(bot.game_info.map_center, 8))
+
+                elif bot.units(BARRACKS).exists and bot.units(REFINERY).amount < 2:
+                    if bot.can_afford(REFINERY):
+                        vgs = bot.state.vespene_geyser.closer_than(20.0, cc)
+                        for vg in vgs:
+                            if bot.units(REFINERY).closer_than(1.0, vg).exists:
+                                break
+
+                            worker = bot.select_build_worker(vg.position)
+                            if worker is None:
+                                break
+
+                            await bot.do(worker.build(REFINERY, vg))
+                            break
+
+                if bot.units(BARRACKS).ready.exists:
+                    if bot.units(FACTORY).amount < 3 and not bot.already_pending(HELLIONTANK):
+                        if bot.can_afford(FACTORY):
+                            p = cc.position.towards_with_random_angle(bot.game_info.map_center, 16)
+                            await bot.build(FACTORY, near=p)
+                    if bot.units(FACTORY).ready.exists:
+                        if bot.can_afford(ARMORY) and not bot.units(ARMORY).exists:
+                            p = cc.position.towards_with_random_angle(bot.game_info.map_center, 16)
+                            await bot.build(ARMORY, near=p)
+                        if bot.units(ARMORY).ready.exists:
+                            if bot.can_afford(STARPORT) and not bot.units(STARPORT).exists:
+                                p = cc.position.towards_with_random_angle(bot.game_info.map_center, 16)
+                                await bot.build(STARPORT, near=p)
+
+        for barrack in bot.units(BARRACKS).ready.noqueue:
+                # Reactor allows us to build two at a time
+            if bot.can_afford(MARINE) and bot.units(MARINE).amount < qtd_marines:
+                await bot.do(barrack.train(MARINE))
+
+            for factory in bot.units(FACTORY).ready.noqueue:
+                if bot.can_afford(CYCLONE) and bot.units(CYCLONE).amount < qtd_cyclone:
+                        await bot.do(factory.train(CYCLONE)) 
+                elif bot.units(ARMORY).exists:
+                    # if factory.has_add_on == 0:
+                    #     await self.do(factory.build(FACTORYTECHLAB))
+                    # elif self.can_afford(THOR) and self.units(THOR).amount < self.qtd_thor:
+                    #     await self.do(factory.train(THOR))
+                    if bot.can_afford(HELLIONTANK) and bot.units(HELLIONTANK).amount < qtd_hellion:
+                        await bot.do(factory.train(HELLIONTANK))
+
+            for starport in bot.units(STARPORT).ready.noqueue:
+                # Reactor allows us to build two at a time
+                if bot.can_afford(MEDIVAC) and bot.units(MEDIVAC).amount < qtd_medivac:
+                    await bot.do(starport.train(MEDIVAC))
+
+        for a in bot.units(REFINERY):
+            if a.assigned_harvesters < a.ideal_harvesters:
+                w = bot.workers.closer_than(20, a)
+                if w.exists:
+                    await bot.do(w.random.gather(a))
+
+        for scv in bot.units(SCV).idle:
+            await bot.do(scv.gather(bot.state.mineral_field.closest_to(cc)))
+
+            
+
+class ProbatusEstBot(sc2.BotAI):
+    def __init__(self):
+        self._agents = []
+ 
+    def on_start(self):
+        self._agents.append(Scouter())
+        self._agents.append(Command())
+
     
     def select_target(self):
         target = self.known_enemy_structures
@@ -38,24 +185,27 @@ class ProbatusEstBot(sc2.BotAI):
             return self.enemy_start_locations[0].position
 
         return self.state.mineral_field.random.position
-    
-    
+
 
     async def on_step(self, iteration):
-        cc = self.units(COMMANDCENTER)
+        loop = asyncio.get_event_loop()
+        tasks = []
+        for agent in self._agents:
+            tasks.append(loop.create_task(agent.on_step(self, iteration)))
+        done, pending = await asyncio.wait(tasks, timeout=200.0)
+        for task in pending:
+            task.cancel()
+
+        self.select_target
+
+
         
         depos = [
             Point2((max({p.x for p in d}), min({p.y for p in d})))
             for d in self.main_base_ramp.top_wall_depos
         ]
 
-        if not cc.exists:
-            target = self.known_enemy_structures.random_or(self.enemy_start_locations[0]).position
-            for unit in self.workers | self.units(HELLIONTANK):
-                await self.do(unit.attack(target))
-            return
-        else:
-            cc = cc.first
+       
             
 #fechar a base (construir bunker)
         
@@ -105,83 +255,29 @@ class ProbatusEstBot(sc2.BotAI):
                 for unit in forces.idle:
                     await self.do(unit.attack(target)) 
                        
-#build
-        if self.can_afford(SCV) and self.workers.amount < 25 and cc.noqueue:
-            await self.do(cc.train(SCV))
+        #build
+        depos = [
+            Point2((max({p.x for p in d}), min({p.y for p in d})))
+            for d in self.main_base_ramp.top_wall_depos
+        ]
+        depo_count = (self.units(SUPPLYDEPOT)).amount
 
-        elif self.supply_left < 3:
-            if self.can_afford(SUPPLYDEPOT) and self.already_pending(SUPPLYDEPOT) < 2:
-                await self.build(SUPPLYDEPOT, near=cc.position.towards(self.game_info.map_center, 8))
+        if self.can_afford(SUPPLYDEPOT) and self.units(SUPPLYDEPOT).amount < 2:
+            depo = list(depos)[depo_count]
+            await self.build(SUPPLYDEPOT, near=depo)
 
-        if self.units(SUPPLYDEPOT).exists:
-            if not self.units(BARRACKS).exists:
-                if self.can_afford(BARRACKS):
-                    await self.build(BARRACKS, near=cc.position.towards(self.game_info.map_center, 8))
 
-            elif self.units(BARRACKS).exists and self.units(REFINERY).amount < 2:
-                if self.can_afford(REFINERY):
-                    vgs = self.state.vespene_geyser.closer_than(20.0, cc)
-                    for vg in vgs:
-                        if self.units(REFINERY).closer_than(1.0, vg).exists:
-                            break
 
-                        worker = self.select_build_worker(vg.position)
-                        if worker is None:
-                            break
+        
 
-                        await self.do(worker.build(REFINERY, vg))
-                        break
-
-            if self.units(BARRACKS).ready.exists:
-                if self.units(FACTORY).amount < 3 and not self.already_pending(HELLIONTANK):
-                    if self.can_afford(FACTORY):
-                        p = cc.position.towards_with_random_angle(self.game_info.map_center, 16)
-                        await self.build(FACTORY, near=p)
-                if self.units(FACTORY).ready.exists:
-                    if self.can_afford(ARMORY) and not self.units(ARMORY).exists:
-                        p = cc.position.towards_with_random_angle(self.game_info.map_center, 16)
-                        await self.build(ARMORY, near=p)
-                    if self.units(ARMORY).ready.exists:
-                        if self.can_afford(STARPORT) and not self.units(STARPORT).exists:
-                            p = cc.position.towards_with_random_angle(self.game_info.map_center, 16)
-                            await self.build(STARPORT, near=p)
-
-        for barrack in self.units(BARRACKS).ready.noqueue:
-            # Reactor allows us to build two at a time
-            if self.can_afford(MARINE) and self.units(MARINE).amount < self.qtd_marines:
-                await self.do(barrack.train(MARINE))
-
-        for factory in self.units(FACTORY).ready.noqueue:
-            if self.can_afford(CYCLONE) and self.units(CYCLONE).amount < self.qtd_cyclone:
-                    await self.do(factory.train(CYCLONE)) 
-            elif self.units(ARMORY).exists:
-                # if factory.has_add_on == 0:
-                #     await self.do(factory.build(FACTORYTECHLAB))
-                # elif self.can_afford(THOR) and self.units(THOR).amount < self.qtd_thor:
-                #     await self.do(factory.train(THOR))
-                if self.can_afford(HELLIONTANK) and self.units(HELLIONTANK).amount < self.qtd_hellion:
-                    await self.do(factory.train(HELLIONTANK))
-
-        for starport in self.units(STARPORT).ready.noqueue:
-            # Reactor allows us to build two at a time
-            if self.can_afford(MEDIVAC) and self.units(MEDIVAC).amount < self.qtd_medivac:
-                await self.do(starport.train(MEDIVAC))
-
-        for a in self.units(REFINERY):
-            if a.assigned_harvesters < a.ideal_harvesters:
-                w = self.workers.closer_than(20, a)
-                if w.exists:
-                    await self.do(w.random.gather(a))
-
-        for scv in self.units(SCV).idle:
-            await self.do(scv.gather(self.state.mineral_field.closest_to(cc)))
 
 def main():
     sc2.run_game(sc2.maps.get("Sequencer LE"), [
         # Human(Race.Terran),
         Bot(Race.Terran, ProbatusEstBot()),
-        Computer(Race.Protoss, Difficulty.Hard)
+        Computer(Race.Zerg, Difficulty.Hard)
     ], realtime=False)
+
 
 if __name__ == '__main__':
     main()
