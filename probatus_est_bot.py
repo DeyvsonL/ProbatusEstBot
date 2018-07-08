@@ -10,6 +10,16 @@ class ProbatusEstBot(sc2.BotAI):
     
     enemy_position = 0
 
+    #Fugir para a base
+    def fugir_para_base(unit):
+        self.do(unit.move(cc.position.towards(self.units(COMMANDCENTER), 8)))
+    
+    #Atacar inimigo na base
+    def inimigo_na_base(){
+        for unit in self.workers | self.units(HELLIONTANK):
+            await self.do(unit.attack(target))
+    }
+    
     def select_target(self):
         target = self.known_enemy_structures
         if target.exists:
