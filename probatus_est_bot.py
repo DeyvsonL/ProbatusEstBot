@@ -11,21 +11,9 @@ class ProbatusEstBot(sc2.BotAI):
     
     enemy_position = 0
     qtd_marines = 50
-    qtd_hellbat = 10
-    qtd_thor = 10
-    qtd_medivac = 5 
-    qtd_viking = 4
-    qtd_cyclone = 3
-    qtd_battlecruizer = 3
-
-    #Fugir para a base
-    def fugir_para_base(unit):
-        self.do(unit.move(cc.position.towards(self.units(COMMANDCENTER), 8)))
-    
-    #Atacar inimigo na base
-    def inimigo_na_base():
-        for unit in self.workers | self.units(HELLIONTANK):
-            await self.do(unit.attack(target))
+    qtd_hellion = 15
+    qtd_medivac = 7 
+    qtd_cyclone = 27
 
     #Fugir para a base
     def fugir_para_base(self, unit):
@@ -76,7 +64,7 @@ class ProbatusEstBot(sc2.BotAI):
             if depo_count >= len(depos):
                 return
             depo = list(depos)[depo_count]
-            r = await self.build(BUNKER, near=depo, max_distance=2, placement_step=1)
+            r = await self.build(BUNKER, near=depo, max_distance=2)
 
         
         # if self.can_afford(BUNKER) and self.units(BUNKER).amount < 3:
@@ -86,7 +74,7 @@ class ProbatusEstBot(sc2.BotAI):
         #         await self.build(BUNKER, near=cc.position.towards(self.enemy_position, 50))
 
 #attack
-        if iteration % 50 == 0 and (self.units(HELLIONTANK).amount > 2 and self.units(MARINE).amount > 10):
+        if iteration % 50 == 0 and (self.units(HELLIONTANK).amount > 2 and self.units(MARINE).amount > 20):
             target = self.select_target()
             forces = self.units(HELLIONTANK)
             if (iteration//50) % 10 == 0:
@@ -109,13 +97,14 @@ class ProbatusEstBot(sc2.BotAI):
             else:
                 for unit in forces.idle:
                     await self.do(unit.attack(target))
-            forces = self.units(THOR)
+            forces = self.units(CYCLONE)
             if (iteration//50) % 10 == 0:
                 for unit in forces:
                     await self.do(unit.attack(target))
             else:
                 for unit in forces.idle:
-                    await self.do(unit.attack(target))        
+                    await self.do(unit.attack(target)) 
+                       
 #build
         if self.can_afford(SCV) and self.workers.amount < 25 and cc.noqueue:
             await self.do(cc.train(SCV))
@@ -147,36 +136,36 @@ class ProbatusEstBot(sc2.BotAI):
                 if self.units(FACTORY).amount < 3 and not self.already_pending(HELLIONTANK):
                     if self.can_afford(FACTORY):
                         p = cc.position.towards_with_random_angle(self.game_info.map_center, 16)
-                        await self.build(FACTORY, near=p, placement_step=5)
+                        await self.build(FACTORY, near=p)
                 if self.units(FACTORY).ready.exists:
                     if self.can_afford(ARMORY) and not self.units(ARMORY).exists:
                         p = cc.position.towards_with_random_angle(self.game_info.map_center, 16)
-                        await self.build(ARMORY, near=p, placement_step=5)
+                        await self.build(ARMORY, near=p)
                     if self.units(ARMORY).ready.exists:
                         if self.can_afford(STARPORT) and not self.units(STARPORT).exists:
                             p = cc.position.towards_with_random_angle(self.game_info.map_center, 16)
-                            await self.build(STARPORT, near=p, placement_step=5)
+                            await self.build(STARPORT, near=p)
 
         for barrack in self.units(BARRACKS).ready.noqueue:
             # Reactor allows us to build two at a time
-            if self.can_afford(MARINE):
+            if self.can_afford(MARINE) and self.units(MARINE).amount < self.qtd_marines:
                 await self.do(barrack.train(MARINE))
 
         for factory in self.units(FACTORY).ready.noqueue:
-            if self.units(ARMORY).exists:
-                if factory.has_add_on == 0:
-                    await self.do(factory.build(FACTORYTECHLAB))
-                elif self.can_afford(THOR):
-                    await self.do(factory.train(THOR))
-                elif self.can_afford(HELLIONTANK):
+            if self.can_afford(CYCLONE) and self.units(CYCLONE).amount < self.qtd_cyclone:
+                    await self.do(factory.train(CYCLONE)) 
+            elif self.units(ARMORY).exists:
+                # if factory.has_add_on == 0:
+                #     await self.do(factory.build(FACTORYTECHLAB))
+                # elif self.can_afford(THOR) and self.units(THOR).amount < self.qtd_thor:
+                #     await self.do(factory.train(THOR))
+                if self.can_afford(HELLIONTANK) and self.units(HELLIONTANK).amount < self.qtd_hellion:
                     await self.do(factory.train(HELLIONTANK))
 
         for starport in self.units(STARPORT).ready.noqueue:
             # Reactor allows us to build two at a time
-            if self.can_afford(MEDIVAC) and self.units(MEDIVAC).amount < 6:
+            if self.can_afford(MEDIVAC) and self.units(MEDIVAC).amount < self.qtd_medivac:
                 await self.do(starport.train(MEDIVAC))
-            elif self.can_afford(VIKING) and self.units(VIKING).amount < 5:    
-
 
         for a in self.units(REFINERY):
             if a.assigned_harvesters < a.ideal_harvesters:
